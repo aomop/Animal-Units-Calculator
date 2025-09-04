@@ -1,0 +1,15 @@
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Renviron
+*_cache/
+.cache/
+.Rproj.user/
+.Rproj.user/**/*
+rsconnect/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
