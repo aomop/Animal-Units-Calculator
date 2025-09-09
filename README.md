@@ -1,6 +1,6 @@
 # Animal Units Calculator
 
-Animal Units (AUs) — Grazing Calculator is an R Shiny app for estimating grazing animal units from vegetation sampling data.
+This is an R Shiny app for estimating grazing animal units from vegetation sampling data.
 
 ## Key features
 - Upload Excel workbooks and pick a sheet and prairie unit for analysis
