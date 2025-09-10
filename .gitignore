@@ -13,3 +13,5 @@ Thumbs.db
 *.log
 *.tmp
 *.bak
+# Ignore generated test fixtures
+tests/testthat/fixtures/*.xlsx
