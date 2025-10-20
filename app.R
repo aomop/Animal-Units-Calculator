@@ -37,12 +37,12 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       fileInput("file", "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
-      helpText("Required columns: Prairie_Unit plus selectable grass percent and dry weight columns."),
+      helpText("Select the sheet and columns that contain grass percent and dry weight data."),
       uiOutput("sheet_picker"),
-      uiOutput("unit_picker"),
+      textInput("unit_label", "Unit name (optional):", value = ""),
       selectInput("grass_col", "Grass % column:", choices = NULL),
       selectInput("dry_col", "Dry weight column:", choices = NULL),
-      # --- New: unit selectors ---
+      # --- Parameters ---
       tags$hr(),
       h3(tags$span("Parameters", class = "orange")),
       numericInput("acreage", "Pasture acreage (A):", value = 163.5, min = 0, step = 0.5),
@@ -135,9 +135,7 @@ server <- function(input, output, session) {
     raw <- read_excel(input$file$datapath, sheet = input$sheet)
     raw <- clean_names(raw)  # keeps 'dry_wegith' as-is
 
-    nm <- names(raw)
     validate(
-      need("prairie_unit" %in% nm, "Missing 'Prairie_Unit' column."),
       need(nrow(raw) > 0, "Uploaded sheet has no rows.")
     )
     raw
@@ -231,37 +229,21 @@ server <- function(input, output, session) {
     df
   })
   
-  # --- Unit selector (populated from data) ---
-  output$unit_picker <- renderUI({
-    req(dat())
-    units <- sort(unique(dat()$prairie_unit))
-    units <- units[!is.na(units)]
-    if (!length(units)) return(NULL)
-    sel <- if ("Buffalo pasture" %in% units) "Buffalo pasture" else units[1]
-    selectInput("unit", "Prairie Unit:", choices = units, selected = sel)
-  })
-
-  # --- Filter to selected unit and keep usable rows ---
-  unit_df <- reactive({
-    req(calc_df(), input$unit)
+  # --- Keep usable rows ---
+  usable_df <- reactive({
+    req(calc_df())
     calc_df() %>%
-      filter(prairie_unit == input$unit)
-  })
-
-  buf <- reactive({
-    req(unit_df())
-    unit_df() %>%
       filter(!is.na(grass_pct), !is.na(dry_weight))
   })
   
   # --- Compute AUs (single-fraction form) ---
   # AUs = [ A * sum_i( w_i * (g_i/100) * K ) ] / [ 2 * C * n ]
   au_value_num <- reactive({
-    if (is.null(buf()) || nrow(buf()) == 0) return(NA_real_)
+    if (is.null(usable_df()) || nrow(usable_df()) == 0) return(NA_real_)
     A  <- input$acreage
-    n  <- nrow(buf())
-    w  <- buf()$dry_weight
-    g_prop <- buf()$grass_pct / 100
+    n  <- nrow(usable_df())
+    w  <- usable_df()$dry_weight
+    g_prop <- usable_df()$grass_pct / 100
 
     K <- K_CONST
     C <- C_reactive()
@@ -272,10 +254,10 @@ server <- function(input, output, session) {
   })
   
   output$au_value <- renderText({
-    if (is.null(unit_df()) || nrow(unit_df()) == 0) {
-      return("No records found for the selected prairie unit.")
+    if (is.null(calc_df()) || nrow(calc_df()) == 0) {
+      return("No records available from the selected sheet.")
     }
-    if (nrow(buf()) == 0) {
+    if (nrow(usable_df()) == 0) {
       return("No usable grazing rows (need non-missing values in the selected grass % and dry weight columns.)")
     }
     val <- au_value_num()
@@ -287,11 +269,17 @@ server <- function(input, output, session) {
   })
   
   output$n_info <- renderText({
-    if (is.null(unit_df())) return("")
+    if (is.null(calc_df())) return("")
+    label <- trimws(if (is.null(input$unit_label)) "" else input$unit_label)
+    if (label == "") label <- "(no unit name provided)"
+
+    total <- nrow(calc_df())
+    usable <- if (!is.null(usable_df())) nrow(usable_df()) else 0
+
     paste0(
-      "Selected unit: ", input$unit %||% "(none)",
-      " | total records: ", nrow(unit_df()),
-      " | usable for AU calc: ", if (!is.null(buf())) nrow(buf()) else 0
+      "Unit name: ", label,
+      " | total records: ", total,
+      " | usable for AU calc: ", usable
     )
   })
   
@@ -305,19 +293,19 @@ server <- function(input, output, session) {
     if (is.null(input$file)) {
       return(empty_tbl)   # show placeholder until data is uploaded
     }
-    if (is.null(unit_df()) || nrow(unit_df()) == 0) {
+    if (is.null(calc_df()) || nrow(calc_df()) == 0) {
       return(datatable(
-        data.frame(Message = "No records for the selected prairie unit."),
+        data.frame(Message = "No records available from the selected sheet."),
         options = list(dom = 't')
       ))
     }
-    if (nrow(buf()) == 0) {
+    if (nrow(usable_df()) == 0) {
       return(datatable(
         data.frame(Message = "No usable rows (missing values in selected grass % or dry weight columns)."),
         options = list(dom = 't')
       ))
     }
-    display_df <- unit_df()
+    display_df <- usable_df()
     display_df <- display_df %>%
       mutate(
         `Grass %` = grass_pct,
