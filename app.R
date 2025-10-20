@@ -37,9 +37,11 @@ ui <- fluidPage(
   sidebarLayout(
     sidebarPanel(
       fileInput("file", "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
-      helpText("Required columns: Prairie_Unit, Grasses (percent), Dry wegith (lbs)."),
+      helpText("Required columns: Prairie_Unit plus selectable grass percent and dry weight columns."),
       uiOutput("sheet_picker"),
       uiOutput("unit_picker"),
+      selectInput("grass_col", "Grass % column:", choices = NULL),
+      selectInput("dry_col", "Dry weight column:", choices = NULL),
       # --- New: unit selectors ---
       tags$hr(),
       h3(tags$span("Parameters", class = "orange")),
@@ -79,7 +81,7 @@ ui <- fluidPage(
                 tags$strong("Where:"),
                 tags$ul(
                   tags$li("\\(A\\) = pasture acreage"),
-                  tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (lbs)"),
+                  tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (grams per ft\\(^2\\))"),
                   tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0–1)"),
                   tags$li(tags$span("\\(K\\) = conversion constant (", textOutput("k_show", inline = TRUE), ")")),
                   tags$li(tags$span("\\(C\\) = lbs of forage consumed per AU per year (", textOutput("c_show", inline = TRUE), ")")),
@@ -105,7 +107,7 @@ server <- function(input, output, session) {
   
   # Nicely formatted for display
   output$k_show <- renderText({
-    format(round(90.033, 3), big.mark = ",")
+    format(round(K_CONST, 3), big.mark = ",")
   })
   output$c_show <- renderText({
     format(C_reactive(), big.mark = ",")
@@ -132,55 +134,124 @@ server <- function(input, output, session) {
     req(input$file, input$sheet)
     raw <- read_excel(input$file$datapath, sheet = input$sheet)
     raw <- clean_names(raw)  # keeps 'dry_wegith' as-is
-    
-    # helper to coerce numerics if imported as text
-    numify <- function(x) suppressWarnings(as.numeric(x))
-    
+
     nm <- names(raw)
-    guess_dry <- dplyr::coalesce(
-      match("dry_wegith", nm),   # expected misspelled export
-      match("dry_weight", nm),
-      match("drywt", nm),
-      match("dry", nm)
-    )
-    
     validate(
       need("prairie_unit" %in% nm, "Missing 'Prairie_Unit' column."),
-      need("grasses" %in% nm, "Missing 'Grasses' column."),
-      need(!is.na(guess_dry), "Missing 'Dry wegith' (dry weight) column.")
+      need(nrow(raw) > 0, "Uploaded sheet has no rows.")
     )
-    
-    raw %>%
-      rename(
-        prairie_unit = prairie_unit,
-        grasses      = grasses,
-        dry_wegith   = !!sym(nm[guess_dry])
-      ) %>%
-      mutate(
-        grasses    = numify(grasses),
-        dry_wegith = numify(dry_wegith)
-      )
+    raw
+  })
+
+  # helper to coerce numerics if imported as text
+  numify <- function(x) {
+    if (is.numeric(x)) return(as.numeric(x))
+    suppressWarnings(as.numeric(gsub(",", "", as.character(x))))
+  }
+
+  guess_column <- function(nm, patterns, exclude = character()) {
+    candidates <- setdiff(nm, exclude)
+    for (pat in patterns) {
+      hits <- candidates[grepl(pat, candidates, ignore.case = TRUE)]
+      if (length(hits) > 0) return(hits[1])
+    }
+    if (length(candidates) > 0) candidates[1] else NULL
+  }
+
+  observeEvent(dat(), {
+    req(dat())
+    nm <- names(dat())
+    if (!length(nm)) return(NULL)
+
+    grass_guess <- guess_column(
+      nm,
+      patterns = c(
+        "grass.*(pct|percent|percentage|prop)",
+        "(pct|percent).*grass",
+        "^grasses$",
+        "^grass$",
+        "grasses",
+        "grass"
+      ),
+      exclude = c("prairie_unit")
+    )
+
+    dry_guess <- guess_column(
+      nm,
+      patterns = c(
+        "^dry_wegith$",
+        "dry.*weight",
+        "dry.*wt",
+        "weight.*dry",
+        "gram",
+        "g_sq",
+        "gper",
+        "dry"
+      ),
+      exclude = c("prairie_unit", grass_guess)
+    )
+
+    fallback_grass <- setdiff(nm, "prairie_unit")
+    if (!length(fallback_grass)) fallback_grass <- nm
+    fallback_grass <- fallback_grass[1]
+
+    fallback_dry <- setdiff(nm, c("prairie_unit", grass_guess))
+    if (!length(fallback_dry)) fallback_dry <- setdiff(nm, "prairie_unit")
+    if (!length(fallback_dry)) fallback_dry <- nm
+    fallback_dry <- fallback_dry[1]
+
+    selected_grass <- if (is.null(grass_guess)) fallback_grass else grass_guess
+    selected_dry <- if (is.null(dry_guess)) fallback_dry else dry_guess
+
+    updateSelectInput(
+      session,
+      "grass_col",
+      choices = nm,
+      selected = selected_grass
+    )
+
+    updateSelectInput(
+      session,
+      "dry_col",
+      choices = nm,
+      selected = selected_dry
+    )
+  }, ignoreNULL = FALSE)
+
+  calc_df <- reactive({
+    req(dat(), input$grass_col, input$dry_col)
+    df <- dat()
+    validate(
+      need(input$grass_col %in% names(df), "Selected grass column missing from data."),
+      need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
+    )
+
+    df$grass_pct <- numify(df[[input$grass_col]])
+    df$dry_weight <- numify(df[[input$dry_col]])
+    df
   })
   
   # --- Unit selector (populated from data) ---
   output$unit_picker <- renderUI({
     req(dat())
     units <- sort(unique(dat()$prairie_unit))
+    units <- units[!is.na(units)]
+    if (!length(units)) return(NULL)
     sel <- if ("Buffalo pasture" %in% units) "Buffalo pasture" else units[1]
     selectInput("unit", "Prairie Unit:", choices = units, selected = sel)
   })
-  
+
   # --- Filter to selected unit and keep usable rows ---
   unit_df <- reactive({
-    req(dat(), input$unit)
-    dat() %>%
+    req(calc_df(), input$unit)
+    calc_df() %>%
       filter(prairie_unit == input$unit)
   })
-  
+
   buf <- reactive({
     req(unit_df())
     unit_df() %>%
-      filter(!is.na(grasses), !is.na(dry_wegith))
+      filter(!is.na(grass_pct), !is.na(dry_weight))
   })
   
   # --- Compute AUs (single-fraction form) ---
@@ -189,10 +260,10 @@ server <- function(input, output, session) {
     if (is.null(buf()) || nrow(buf()) == 0) return(NA_real_)
     A  <- input$acreage
     n  <- nrow(buf())
-    w  <- buf()$dry_wegith
-    g_prop <- buf()$grasses / 100
-    
-    K <- 96.033
+    w  <- buf()$dry_weight
+    g_prop <- buf()$grass_pct / 100
+
+    K <- K_CONST
     C <- C_reactive()
     
     num <- A * sum(w * g_prop * K, na.rm = TRUE)
@@ -205,7 +276,7 @@ server <- function(input, output, session) {
       return("No records found for the selected prairie unit.")
     }
     if (nrow(buf()) == 0) {
-      return("No usable grazing rows (need non-missing Grasses and Dry wegith).")
+      return("No usable grazing rows (need non-missing values in the selected grass % and dry weight columns.)")
     }
     val <- au_value_num()
     if (is.na(val)) {
@@ -225,11 +296,7 @@ server <- function(input, output, session) {
   })
   
   empty_tbl <- datatable(
-    data.frame(
-      plot = character(),
-      grasses = numeric(),
-      dry_wegith = numeric()
-    ),
+    data.frame(Message = "Upload a spreadsheet to begin."),
     options = list(dom = 't'),
     rownames = FALSE
   )
@@ -246,13 +313,24 @@ server <- function(input, output, session) {
     }
     if (nrow(buf()) == 0) {
       return(datatable(
-        data.frame(Message = "No usable rows (missing Grasses or Dry wegith)."),
+        data.frame(Message = "No usable rows (missing values in selected grass % or dry weight columns)."),
         options = list(dom = 't')
       ))
     }
-    buf() %>%
-      select(plot, grasses, dry_wegith) %>%
-      datatable(options = list(pageLength = 10))
+    display_df <- unit_df()
+    display_df <- display_df %>%
+      mutate(
+        `Grass %` = grass_pct,
+        `Dry weight (g/ft^2)` = dry_weight
+      )
+
+    preferred <- intersect("plot", names(display_df))
+    display_cols <- c(preferred, "prairie_unit", "Grass %", "Dry weight (g/ft^2)")
+    display_cols <- display_cols[display_cols %in% names(display_df)]
+
+    display_df %>%
+      select(all_of(display_cols)) %>%
+      datatable(options = list(pageLength = 10, autoWidth = TRUE), rownames = FALSE)
   })
   gif_server("cheer")
 }
