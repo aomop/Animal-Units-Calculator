@@ -227,12 +227,38 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
         den <- 2 * c_reactive() * payload$usable
         au_val <- payload$acreage * payload$sum_component / den
 
-        clean_df <- payload$clean_df
-        clean_df$acreage_used <- payload$acreage
-        clean_df$intake_lbs_per_au <- c_reactive()
-        clean_df$au_estimate <- au_val
+        clean_df <- payload$clean_df %>%
+          dplyr::transmute(
+            plot,
+            grass_pct,
+            dry_weight,
+            usable_for_au,
+            au_component,
+            au_estimate = au_val
+          ) %>%
+          dplyr::mutate(plot = as.character(plot))
 
-        write.csv(clean_df, file, row.names = FALSE)
+        label_input <- trimws(if (is.null(payload$unit_label)) "" else payload$unit_label)
+        header_parts <- c(
+          if (nzchar(label_input)) paste0("Unit: ", label_input) else NULL,
+          paste0("Acreage: ", format(payload$acreage, big.mark = ",")),
+          paste0("Usable samples: ", payload$usable),
+          paste0("Intake (lbs/AU): ", format(c_reactive(), big.mark = ",")),
+          paste0("Conversion constant (K): ", format(k_const, big.mark = ","))
+        )
+
+        header_row <- tibble::tibble(
+          plot = paste(header_parts, collapse = " | "),
+          grass_pct = NA_real_,
+          dry_weight = NA_real_,
+          usable_for_au = NA,
+          au_component = NA_real_,
+          au_estimate = NA_real_
+        )
+
+        output_tbl <- dplyr::bind_rows(header_row, clean_df)
+
+        write.csv(output_tbl, file, row.names = FALSE, na = "")
       }
     )
 
