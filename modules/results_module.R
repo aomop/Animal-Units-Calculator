@@ -60,6 +60,7 @@ resultsMainUI <- function(id) {
 #' @param k_const Numeric conversion factor.
 resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
   moduleServer(id, function(input, output, session) {
+    # Keep both the raw calculation results and the inputs that produced them.
     calc_state <- reactiveValues(payload = NULL, signature = NULL)
 
     # The intake value is controlled by the parameter module. We keep it here so
@@ -69,10 +70,12 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
     })
 
     output$k_show <- renderText({
+      # Present the conversion constant with thousands separators for readability.
       format(round(k_const, 3), big.mark = ",")
     })
 
     output$c_show <- renderText({
+      # Same story for the intake figure that comes from the parameter module.
       format(c_reactive(), big.mark = ",")
     })
 
@@ -89,11 +92,13 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
       )
     })
 
+    # Re-run the numerical work only when the user explicitly asks for it.
     observeEvent(parameter_inputs$calculate(), {
       df_all <- data_inputs$calc_df()
       df_use <- data_inputs$usable_df()
       acreage_val <- parameter_inputs$acreage()
 
+      # Guard against incomplete setups so the calculation step is predictable.
       validate(
         need(!is.null(acreage_val) && !is.na(acreage_val), "Enter pasture acreage before calculating."),
         need(acreage_val > 0, "Pasture acreage must be greater than zero."),
@@ -103,8 +108,11 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
 
       df_all <- dplyr::mutate(
         df_all,
+        # Flag the rows that contain both inputs needed for the calculation.
         usable_for_au = !is.na(grass_pct) & !is.na(dry_weight),
+        # Convert the percent into a proportion so the formula works as expected.
         grass_proportion = dplyr::if_else(usable_for_au, grass_pct / 100, NA_real_),
+        # Pre-compute each row's contribution to the numerator of the AU formula.
         au_component = dplyr::if_else(usable_for_au, dry_weight * grass_proportion * k_const, NA_real_)
       )
 
@@ -112,6 +120,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
         total = nrow(df_all),
         usable = nrow(df_use),
         acreage = acreage_val,
+        # Summing the components now saves recomputing them on every render.
         sum_component = sum(df_all$au_component, na.rm = TRUE),
         clean_df = df_all,
         sheet = data_inputs$sheet(),
@@ -152,7 +161,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
         return("No usable value could be calculated.")
       }
 
-      den <- 2 * c_reactive() * payload$usable
+      den <- 2 * c_reactive() * payload$usable  # denominator of the AU equation
       val <- payload$acreage * payload$sum_component / den
       if (is.na(val)) {
         "No usable value could be calculated."
@@ -234,11 +243,13 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
             dry_weight,
             usable_for_au,
             au_component,
+            # Stamp the overall AU estimate on every row for easy reference.
             au_estimate = au_val
           ) %>%
           dplyr::mutate(plot = as.character(plot))
 
         label_input <- trimws(if (is.null(payload$unit_label)) "" else payload$unit_label)
+        # Build a single line of metadata so exported CSVs carry context.
         header_parts <- c(
           if (nzchar(label_input)) paste0("Unit: ", label_input) else NULL,
           paste0("Acreage: ", format(payload$acreage, big.mark = ",")),
@@ -247,6 +258,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
           paste0("Conversion constant (K): ", format(k_const, big.mark = ","))
         )
 
+        # Prepend the header row before the actual cleaned observations.
         header_row <- tibble::tibble(
           plot = paste(header_parts, collapse = " | "),
           grass_pct = NA_real_,
@@ -258,6 +270,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
 
         output_tbl <- dplyr::bind_rows(header_row, clean_df)
 
+        # Export using base CSV writer so users can open it in any spreadsheet tool.
         write.csv(output_tbl, file, row.names = FALSE, na = "")
       }
     )
@@ -265,9 +278,9 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
     # Provide a list of helper reactives for other modules (like the table) to
     # reuse if needed in the future.
     list(
-      payload = reactive(calc_state$payload),
-      signature = reactive(calc_state$signature),
-      c_value = c_reactive
+      payload = reactive(calc_state$payload),     # full calculation details
+      signature = reactive(calc_state$signature), # inputs that produced payload
+      c_value = c_reactive                         # expose current intake choice
     )
   })
 }

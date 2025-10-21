@@ -32,10 +32,13 @@ parameterUI <- function(id) {
 #' @return A list with reactivity for acreage, intake, and button presses.
 parameterServer <- function(id) {
   moduleServer(id, function(input, output, session) {
+    # Convert whatever the user types into a numeric so validations downstream
+    # are comparing like-with-like.
     acreage <- reactive({
       suppressWarnings(as.numeric(input$acreage))
     })
 
+    # Radio buttons already restrict choices; we coerce to numeric for maths.
     intake <- reactive({
       as.numeric(input$intake)
     })

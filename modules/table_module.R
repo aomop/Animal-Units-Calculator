@@ -20,6 +20,7 @@ tableUI <- function(id) {
 #' @param data_inputs Reactive list returned from `dataInputServer()`.
 tableServer <- function(id, data_inputs) {
   moduleServer(id, function(input, output, session) {
+    # Pre-build a small datatable so we can reuse it when nothing is uploaded.
     empty_tbl <- datatable(
       data.frame(Message = "Upload a spreadsheet to begin."),
       options = list(dom = 't'),
@@ -34,6 +35,7 @@ tableServer <- function(id, data_inputs) {
 
       calc_df <- data_inputs$calc_df()
       if (is.null(calc_df) || nrow(calc_df) == 0) {
+        # Inform the user that the sheet itself did not produce any rows.
         return(datatable(
           data.frame(Message = "No records available from the selected sheet."),
           options = list(dom = 't')
@@ -42,6 +44,7 @@ tableServer <- function(id, data_inputs) {
 
       usable_df <- data_inputs$usable_df()
       if (nrow(usable_df) == 0) {
+        # Acknowledge when all rows were filtered because of missing values.
         return(datatable(
           data.frame(Message = "No usable rows (missing values in selected grass % or dry weight columns)."),
           options = list(dom = 't')
@@ -50,12 +53,14 @@ tableServer <- function(id, data_inputs) {
 
       display_df <- usable_df %>%
         dplyr::mutate(
+          # Rename columns into friendly labels without changing the raw data.
           `Grass %` = grass_pct,
           `Dry weight (g/ft^2)` = dry_weight
         )
 
       preferred <- intersect("plot", names(display_df))
       display_cols <- c(preferred, "prairie_unit", "Grass %", "Dry weight (g/ft^2)")
+      # Keep only the columns that actually exist, preserving the column order.
       display_cols <- display_cols[display_cols %in% names(display_df)]
 
       display_df %>%

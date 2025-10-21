@@ -7,12 +7,13 @@ gif_ui <- function(
 ) {
   ns <- NS(id)
   
+  # Utility: pick either black or white text depending on button background.
   get_contrast_text <- function(hex_color) {
     hex_color <- gsub("#", "", hex_color)
     if (nchar(hex_color) == 3) {
       hex_color <- paste(rep(strsplit(hex_color, "")[[1]], each = 2), collapse = "")
     }
-    
+
     r <- strtoi(substr(hex_color, 1, 2), 16L)
     g <- strtoi(substr(hex_color, 3, 4), 16L)
     b <- strtoi(substr(hex_color, 5, 6), 16L)
@@ -22,13 +23,15 @@ gif_ui <- function(
   }
   
   if (is.null(textcolor)) {
+    # Auto-select a readable text colour unless the caller overrides it.
     textcolor <- tryCatch(get_contrast_text(color), error = function(e) "white")
   }
-  
+
   style <- paste(
     sprintf("position: %s", position),
     sprintf("background-color: %s;", color),
     sprintf("color: %s;", textcolor),
+    # Fixed padding/z-index keep the button visible even on long pages.
     "border-radius: 5px; padding: 10px; z-index: 1000;"
   )
   
@@ -47,6 +50,7 @@ gif_ui <- function(
 gif_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     gif_list <- c("raccoon.gif", "dogcat.gif", "elephant.gif", "cattail.gif", "sesame_street.gif", "vibrations.gif")
+    # Silly one-liners that accompany the modal dialog.
     title_list <- c(
       "Wow, that button never saw it coming. Incredible work.",
       
@@ -96,20 +100,22 @@ gif_server <- function(id) {
     
     observeEvent(input$show_gif, {
       cat("Gif Button Clicked!\n")
-      
+
+      # Keep sampling until we avoid repeating the last shown GIF.
       repeat {
         selected_gif <- sample(gif_list, 1)
         if (selected_gif != prev_gif() || prev_gif() == "") break
       }
-      
+
+      # Do the same for the caption so the modal feels fresh each time.
       repeat {
         selected_title <- sample(title_list, 1)
         if (selected_title != prev_title() || prev_title() == "") break
       }
-      
+
       prev_gif(selected_gif)
       prev_title(selected_title)
-      
+
       showModal(modalDialog(
         title = selected_title,
         tags$img(src = file.path("cheerfulgif-assets", selected_gif), width = "100%"),
@@ -117,7 +123,7 @@ gif_server <- function(id) {
         easyClose = TRUE,
         size = "l"
       ))
-      
+
       cat("Selected GIF:", selected_gif, "\n")
       cat("Selected Title:", selected_title, "\n")
     })
