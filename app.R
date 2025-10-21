@@ -38,14 +38,15 @@ ui <- fluidPage(
     sidebarPanel(
       fileInput("file", "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
       helpText("Select the sheet and columns that contain grass percent and dry weight data."),
-      uiOutput("sheet_picker"),
+      selectInput("sheet", "Choose sheet:", choices = character(0)),
       textInput("unit_label", "Unit name (optional):", value = ""),
       selectInput("grass_col", "Grass % column:", choices = NULL),
       selectInput("dry_col", "Dry weight column:", choices = NULL),
       # --- Parameters ---
       tags$hr(),
       h3(tags$span("Parameters", class = "orange")),
-      numericInput("acreage", "Pasture acreage (A):", value = 163.5, min = 0, step = 0.5),
+      numericInput("acreage", "Pasture acreage (A):", value = NA, min = 0, step = 0.5),
+      actionButton("calculate", "Calculate", class = "btn-primary"),
       radioButtons("intake", "Annual AU intake basis:",
                    choices = c("3.0% (10,950 lb/yr)" = "10950",
                                "2.6% (9,490 lb/yr)" = "9490"),
@@ -114,25 +115,65 @@ server <- function(input, output, session) {
   })
   
   # --- List sheets after upload ---
-  sheet_names <- reactive({
-    req(input$file)
-    readxl::excel_sheets(input$file$datapath)
+  sheet_choices <- reactiveVal(character(0))
+
+  observeEvent(input$file, {
+    file <- input$file
+    if (is.null(file)) {
+      sheet_choices(character(0))
+      return()
+    }
+
+    sheets <- tryCatch(
+      readxl::excel_sheets(file$datapath),
+      error = function(e) {
+        showNotification(
+          paste("Unable to read sheets from the uploaded file:", e$message),
+          type = "error"
+        )
+        character(0)
+      }
+    )
+
+    sheet_choices(sheets)
   })
-  
-  output$sheet_picker <- renderUI({
-    req(sheet_names())
-    selectInput(
+
+  observe({
+    sheets <- sheet_choices()
+    selected <- NULL
+    if (length(sheets) > 0) {
+      if (!is.null(input$sheet) && input$sheet %in% sheets) {
+        selected <- input$sheet
+      } else {
+        selected <- sheets[1]
+      }
+    }
+
+    updateSelectInput(
+      session,
       "sheet",
-      "Choose sheet:",
-      choices = sheet_names(),
-      selected = sheet_names()[1]
+      choices = sheets,
+      selected = selected
     )
   })
-  
+
   # --- Read selected sheet and clean ---
   dat <- reactive({
-    req(input$file, input$sheet)
-    raw <- read_excel(input$file$datapath, sheet = input$sheet)
+    req(input$file)
+    sheets <- sheet_choices()
+
+    validate(
+      need(length(sheets) > 0, "No sheets available in the uploaded file."),
+      need(!is.null(input$sheet) && nzchar(input$sheet), "Select a sheet to load."),
+      need(input$sheet %in% sheets, "Selected sheet not found in the uploaded file. Please choose another sheet.")
+    )
+
+    raw <- tryCatch(
+      read_excel(input$file$datapath, sheet = input$sheet),
+      error = function(e) {
+        validate(need(FALSE, paste0("Unable to read sheet '", input$sheet, "': ", e$message)))
+      }
+    )
     raw <- clean_names(raw)  # keeps 'dry_wegith' as-is
 
     validate(
@@ -238,48 +279,121 @@ server <- function(input, output, session) {
   
   # --- Compute AUs (single-fraction form) ---
   # AUs = [ A * sum_i( w_i * (g_i/100) * K ) ] / [ 2 * C * n ]
-  au_value_num <- reactive({
-    if (is.null(usable_df()) || nrow(usable_df()) == 0) return(NA_real_)
-    A  <- input$acreage
-    n  <- nrow(usable_df())
-    w  <- usable_df()$dry_weight
-    g_prop <- usable_df()$grass_pct / 100
+  calc_results <- eventReactive(input$calculate, {
+    df_all <- calc_df()
+    df_use <- usable_df()
 
-    K <- K_CONST
-    C <- C_reactive()
-    
-    num <- A * sum(w * g_prop * K, na.rm = TRUE)
-    den <- 2 * C * n
-    num / den
-  })
-  
+    acreage_val <- suppressWarnings(as.numeric(input$acreage))
+    validate(
+      need(!is.null(acreage_val) && !is.na(acreage_val), "Enter pasture acreage before calculating."),
+      need(acreage_val > 0, "Pasture acreage must be greater than zero."),
+      need(nrow(df_all) > 0, "No records available from the selected sheet."),
+      need(nrow(df_use) > 0, "No usable grazing rows (need non-missing values in the selected grass % and dry weight columns.)")
+    )
+
+    w  <- df_use$dry_weight
+    g_prop <- df_use$grass_pct / 100
+
+    num <- acreage_val * sum(w * g_prop * K_CONST, na.rm = TRUE)
+    den <- 2 * C_reactive() * nrow(df_use)
+
+    label_input <- trimws(if (is.null(input$unit_label)) "" else input$unit_label)
+    label_display <- if (label_input == "") "(no unit name provided)" else label_input
+
+    signature <- list(
+      file = if (is.null(input$file)) NULL else input$file$datapath,
+      sheet = input$sheet,
+      grass = input$grass_col,
+      dry = input$dry_col,
+      intake = input$intake,
+      acreage = acreage_val,
+      unit_label = label_input
+    )
+
+    list(
+      value = num / den,
+      total = nrow(df_all),
+      usable = nrow(df_use),
+      label = label_display,
+      signature = signature
+    )
+  }, ignoreNULL = TRUE)
+
   output$au_value <- renderText({
-    if (is.null(calc_df()) || nrow(calc_df()) == 0) {
-      return("No records available from the selected sheet.")
+    if (is.null(input$file)) {
+      return("Upload a spreadsheet to begin.")
     }
-    if (nrow(usable_df()) == 0) {
-      return("No usable grazing rows (need non-missing values in the selected grass % and dry weight columns.)")
+    sheets <- sheet_choices()
+    if (length(sheets) == 0) {
+      return("No sheets available in the uploaded file.")
     }
-    val <- au_value_num()
+    if (is.null(input$sheet) || !nzchar(input$sheet) || !(input$sheet %in% sheets)) {
+      return("Selected sheet not found in the uploaded file. Please choose another sheet.")
+    }
+    if (input$calculate == 0) {
+      return("Click Calculate to compute AUs.")
+    }
+
+    res <- calc_results()
+    if (is.null(res)) {
+      return("Click Calculate to compute AUs.")
+    }
+
+    current_signature <- list(
+      file = if (is.null(input$file)) NULL else input$file$datapath,
+      sheet = input$sheet,
+      grass = input$grass_col,
+      dry = input$dry_col,
+      intake = input$intake,
+      acreage = suppressWarnings(as.numeric(input$acreage)),
+      unit_label = trimws(if (is.null(input$unit_label)) "" else input$unit_label)
+    )
+    if (!identical(res$signature, current_signature)) {
+      return("Inputs changed. Click Calculate to update results.")
+    }
+
+    val <- res$value
     if (is.na(val)) {
       "No usable value could be calculated."
     } else {
       format(round(val, 3), big.mark = ",")
     }
   })
-  
-  output$n_info <- renderText({
-    if (is.null(calc_df())) return("")
-    label <- trimws(if (is.null(input$unit_label)) "" else input$unit_label)
-    if (label == "") label <- "(no unit name provided)"
 
-    total <- nrow(calc_df())
-    usable <- if (!is.null(usable_df())) nrow(usable_df()) else 0
+  output$n_info <- renderText({
+    if (is.null(input$file)) {
+      return("")
+    }
+    sheets <- sheet_choices()
+    if (length(sheets) == 0 || is.null(input$sheet) || !nzchar(input$sheet) || !(input$sheet %in% sheets)) {
+      return("")
+    }
+    if (input$calculate == 0) {
+      return("Click Calculate to view unit summary.")
+    }
+
+    res <- calc_results()
+    if (is.null(res)) {
+      return("")
+    }
+
+    current_signature <- list(
+      file = if (is.null(input$file)) NULL else input$file$datapath,
+      sheet = input$sheet,
+      grass = input$grass_col,
+      dry = input$dry_col,
+      intake = input$intake,
+      acreage = suppressWarnings(as.numeric(input$acreage)),
+      unit_label = trimws(if (is.null(input$unit_label)) "" else input$unit_label)
+    )
+    if (!identical(res$signature, current_signature)) {
+      return("Inputs changed. Click Calculate to update results.")
+    }
 
     paste0(
-      "Unit name: ", label,
-      " | total records: ", total,
-      " | usable for AU calc: ", usable
+      "Unit name: ", res$label,
+      " | total records: ", res$total,
+      " | usable for AU calc: ", res$usable
     )
   })
   
