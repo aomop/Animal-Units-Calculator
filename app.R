@@ -64,6 +64,7 @@ ui <- fluidPage(
         tags$hr(),
         h3(tags$span("Calculated AUs", class = "orange")),
         tags$h2(textOutput("au_value"), class = "green"),
+        downloadButton("download_clean", "Download clean CSV", class = "btn-success"),
         tags$hr(),
         fluidRow(
           column(
@@ -116,11 +117,14 @@ server <- function(input, output, session) {
   
   # --- List sheets after upload ---
   sheet_choices <- reactiveVal(character(0))
+  calc_state <- reactiveValues(payload = NULL, signature = NULL)
 
   observeEvent(input$file, {
     file <- input$file
     if (is.null(file)) {
       sheet_choices(character(0))
+      calc_state$payload <- NULL
+      calc_state$signature <- NULL
       return()
     }
 
@@ -136,6 +140,8 @@ server <- function(input, output, session) {
     )
 
     sheet_choices(sheets)
+    calc_state$payload <- NULL
+    calc_state$signature <- NULL
   })
 
   observe({
@@ -279,7 +285,17 @@ server <- function(input, output, session) {
   
   # --- Compute AUs (single-fraction form) ---
   # AUs = [ A * sum_i( w_i * (g_i/100) * K ) ] / [ 2 * C * n ]
-  calc_results <- eventReactive(input$calculate, {
+  current_signature <- reactive({
+    list(
+      file = if (is.null(input$file)) NULL else input$file$datapath,
+      sheet = if (is.null(input$sheet)) NULL else input$sheet,
+      grass = if (is.null(input$grass_col)) NULL else input$grass_col,
+      dry = if (is.null(input$dry_col)) NULL else input$dry_col,
+      acreage = suppressWarnings(as.numeric(input$acreage))
+    )
+  })
+
+  observeEvent(input$calculate, {
     df_all <- calc_df()
     df_use <- usable_df()
 
@@ -291,32 +307,24 @@ server <- function(input, output, session) {
       need(nrow(df_use) > 0, "No usable grazing rows (need non-missing values in the selected grass % and dry weight columns.)")
     )
 
-    w  <- df_use$dry_weight
-    g_prop <- df_use$grass_pct / 100
+    df_all <- df_all %>%
+      mutate(
+        usable_for_au = !is.na(grass_pct) & !is.na(dry_weight),
+        grass_proportion = if_else(usable_for_au, grass_pct / 100, NA_real_),
+        au_component = if_else(usable_for_au, dry_weight * grass_proportion * K_CONST, NA_real_)
+      )
 
-    num <- acreage_val * sum(w * g_prop * K_CONST, na.rm = TRUE)
-    den <- 2 * C_reactive() * nrow(df_use)
+    sum_component <- sum(df_all$au_component, na.rm = TRUE)
 
-    label_input <- trimws(if (is.null(input$unit_label)) "" else input$unit_label)
-    label_display <- if (label_input == "") "(no unit name provided)" else label_input
-
-    signature <- list(
-      file = if (is.null(input$file)) NULL else input$file$datapath,
-      sheet = input$sheet,
-      grass = input$grass_col,
-      dry = input$dry_col,
-      intake = input$intake,
-      acreage = acreage_val,
-      unit_label = label_input
-    )
-
-    list(
-      value = num / den,
+    calc_state$payload <- list(
       total = nrow(df_all),
       usable = nrow(df_use),
-      label = label_display,
-      signature = signature
+      acreage = acreage_val,
+      sum_component = sum_component,
+      clean_df = df_all,
+      sheet = input$sheet
     )
+    calc_state$signature <- current_signature()
   }, ignoreNULL = TRUE)
 
   output$au_value <- renderText({
@@ -330,29 +338,24 @@ server <- function(input, output, session) {
     if (is.null(input$sheet) || !nzchar(input$sheet) || !(input$sheet %in% sheets)) {
       return("Selected sheet not found in the uploaded file. Please choose another sheet.")
     }
-    if (input$calculate == 0) {
+    payload <- calc_state$payload
+    signature <- calc_state$signature
+    current_sig <- current_signature()
+
+    if (is.null(payload) || is.null(signature)) {
       return("Click Calculate to compute AUs.")
     }
 
-    res <- calc_results()
-    if (is.null(res)) {
-      return("Click Calculate to compute AUs.")
-    }
-
-    current_signature <- list(
-      file = if (is.null(input$file)) NULL else input$file$datapath,
-      sheet = input$sheet,
-      grass = input$grass_col,
-      dry = input$dry_col,
-      intake = input$intake,
-      acreage = suppressWarnings(as.numeric(input$acreage)),
-      unit_label = trimws(if (is.null(input$unit_label)) "" else input$unit_label)
-    )
-    if (!identical(res$signature, current_signature)) {
+    if (!identical(signature, current_sig)) {
       return("Inputs changed. Click Calculate to update results.")
     }
 
-    val <- res$value
+    if (payload$usable <= 0) {
+      return("No usable value could be calculated.")
+    }
+
+    den <- 2 * C_reactive() * payload$usable
+    val <- payload$acreage * payload$sum_component / den
     if (is.na(val)) {
       "No usable value could be calculated."
     } else {
@@ -368,32 +371,25 @@ server <- function(input, output, session) {
     if (length(sheets) == 0 || is.null(input$sheet) || !nzchar(input$sheet) || !(input$sheet %in% sheets)) {
       return("")
     }
-    if (input$calculate == 0) {
+    payload <- calc_state$payload
+    signature <- calc_state$signature
+    current_sig <- current_signature()
+
+    if (is.null(payload) || is.null(signature)) {
       return("Click Calculate to view unit summary.")
     }
 
-    res <- calc_results()
-    if (is.null(res)) {
-      return("")
-    }
-
-    current_signature <- list(
-      file = if (is.null(input$file)) NULL else input$file$datapath,
-      sheet = input$sheet,
-      grass = input$grass_col,
-      dry = input$dry_col,
-      intake = input$intake,
-      acreage = suppressWarnings(as.numeric(input$acreage)),
-      unit_label = trimws(if (is.null(input$unit_label)) "" else input$unit_label)
-    )
-    if (!identical(res$signature, current_signature)) {
+    if (!identical(signature, current_sig)) {
       return("Inputs changed. Click Calculate to update results.")
     }
 
+    label_input <- trimws(if (is.null(input$unit_label)) "" else input$unit_label)
+    label_display <- if (label_input == "") "(no unit name provided)" else label_input
+
     paste0(
-      "Unit name: ", res$label,
-      " | total records: ", res$total,
-      " | usable for AU calc: ", res$usable
+      "Unit name: ", label_display,
+      " | total records: ", payload$total,
+      " | usable for AU calc: ", payload$usable
     )
   })
   
@@ -434,6 +430,46 @@ server <- function(input, output, session) {
       select(all_of(display_cols)) %>%
       datatable(options = list(pageLength = 10, autoWidth = TRUE), rownames = FALSE)
   })
+
+  output$download_clean <- downloadHandler(
+    filename = function() {
+      base <- if (!is.null(input$file) && !is.null(input$file$name)) {
+        tools::file_path_sans_ext(basename(input$file$name))
+      } else {
+        "au_results"
+      }
+
+      payload <- calc_state$payload
+      sheet <- if (!is.null(payload)) payload$sheet else NULL
+      sheet_suffix <- if (!is.null(sheet) && nzchar(sheet)) paste0("_", sheet) else ""
+      paste0(base, sheet_suffix, "_clean.csv")
+    },
+    content = function(file) {
+      payload <- calc_state$payload
+      signature <- calc_state$signature
+      current_sig <- current_signature()
+
+      if (is.null(payload) || is.null(signature) || !identical(signature, current_sig)) {
+        showNotification("Recalculate before downloading clean results.", type = "error")
+        return(invisible(NULL))
+      }
+
+      if (payload$usable <= 0) {
+        showNotification("No usable records available for download.", type = "error")
+        return(invisible(NULL))
+      }
+
+      den <- 2 * C_reactive() * payload$usable
+      au_val <- payload$acreage * payload$sum_component / den
+
+      clean_df <- payload$clean_df
+      clean_df$acreage_used <- payload$acreage
+      clean_df$intake_lbs_per_au <- C_reactive()
+      clean_df$au_estimate <- au_val
+
+      write.csv(clean_df, file, row.names = FALSE)
+    }
+  )
   gif_server("cheer")
 }
 
