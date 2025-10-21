@@ -1,0 +1,198 @@
+# data_input_module.R
+#
+# This module bundles together everything related to getting raw data into the
+# app. Keeping the file upload, sheet picker, and column selectors in one place
+# makes it easier for new Shiny developers to follow how the information flows
+# from the UI into the calculations.
+
+# --- User interface -------------------------------------------------------
+#' Data upload and column selection UI
+#'
+#' @param id Module namespace identifier.
+#' @return A list of UI elements that render the file upload tools.
+dataInputUI <- function(id) {
+  ns <- NS(id)
+
+  tagList(
+    fileInput(ns("file"), "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
+    helpText("Select the sheet and columns that contain grass percent and dry weight data."),
+    selectInput(ns("sheet"), "Choose sheet:", choices = character(0)),
+    textInput(ns("unit_label"), "Unit name (optional):", value = ""),
+    selectInput(ns("grass_col"), "Grass % column:", choices = NULL),
+    selectInput(ns("dry_col"), "Dry weight column:", choices = NULL)
+  )
+}
+
+# --- Server logic ---------------------------------------------------------
+#' Data upload server logic
+#'
+#' @param id Module namespace identifier.
+#' @return A list of reactive helpers that expose the cleaned dataset and the
+#'         selected column names to the rest of the app.
+dataInputServer <- function(id) {
+  moduleServer(id, function(input, output, session) {
+    sheet_choices <- reactiveVal(character(0))
+
+    # When a file is uploaded we list out the available sheets. This mirrors the
+    # behaviour from the single-file app but keeps the scope inside the module.
+    observeEvent(input$file, {
+      file <- input$file
+      if (is.null(file)) {
+        sheet_choices(character(0))
+        return()
+      }
+
+      sheets <- tryCatch(
+        readxl::excel_sheets(file$datapath),
+        error = function(e) {
+          showNotification(
+            paste("Unable to read sheets from the uploaded file:", e$message),
+            type = "error"
+          )
+          character(0)
+        }
+      )
+
+      sheet_choices(sheets)
+    })
+
+    # Keep the sheet select box in sync with whatever is available.
+    observe({
+      sheets <- sheet_choices()
+      selected <- NULL
+      if (length(sheets) > 0) {
+        if (!is.null(input$sheet) && input$sheet %in% sheets) {
+          selected <- input$sheet
+        } else {
+          selected <- sheets[1]
+        }
+      }
+
+      updateSelectInput(session, "sheet", choices = sheets, selected = selected)
+    })
+
+    # Read in the selected sheet, keeping the names tidy so users can work with
+    # consistent column names.
+    dat <- reactive({
+      req(input$file)
+      sheets <- sheet_choices()
+
+      validate(
+        need(length(sheets) > 0, "No sheets available in the uploaded file."),
+        need(!is.null(input$sheet) && nzchar(input$sheet), "Select a sheet to load."),
+        need(input$sheet %in% sheets, "Selected sheet not found in the uploaded file. Please choose another sheet.")
+      )
+
+      raw <- tryCatch(
+        readxl::read_excel(input$file$datapath, sheet = input$sheet),
+        error = function(e) {
+          validate(need(FALSE, paste0("Unable to read sheet '", input$sheet, "': ", e$message)))
+        }
+      )
+
+      raw <- janitor::clean_names(raw)
+      validate(need(nrow(raw) > 0, "Uploaded sheet has no rows."))
+      raw
+    })
+
+    # Small helper that tries to coerce values into numerics even if they were
+    # imported as text. It is defined here so that both the guessing logic and
+    # the downstream calculations can use the same behaviour.
+    numify <- function(x) {
+      if (is.numeric(x)) return(as.numeric(x))
+      suppressWarnings(as.numeric(gsub(",", "", as.character(x))))
+    }
+
+    guess_column <- function(nm, patterns, exclude = character()) {
+      candidates <- setdiff(nm, exclude)
+      for (pat in patterns) {
+        hits <- candidates[grepl(pat, candidates, ignore.case = TRUE)]
+        if (length(hits) > 0) return(hits[1])
+      }
+      if (length(candidates) > 0) candidates[1] else NULL
+    }
+
+    # Once data is available we suggest sensible defaults for the grass and dry
+    # weight columns so that beginners do not have to guess.
+    observeEvent(dat(), {
+      req(dat())
+      nm <- names(dat())
+      if (!length(nm)) return(NULL)
+
+      grass_guess <- guess_column(
+        nm,
+        patterns = c(
+          "grass.*(pct|percent|percentage|prop)",
+          "(pct|percent).*grass",
+          "^grasses$",
+          "^grass$",
+          "grasses",
+          "grass"
+        ),
+        exclude = c("prairie_unit")
+      )
+
+      dry_guess <- guess_column(
+        nm,
+        patterns = c(
+          "^dry_wegith$",
+          "dry.*weight",
+          "dry.*wt",
+          "weight.*dry",
+          "gram",
+          "g_sq",
+          "gper",
+          "dry"
+        ),
+        exclude = c("prairie_unit", grass_guess)
+      )
+
+      fallback_grass <- setdiff(nm, "prairie_unit")
+      if (!length(fallback_grass)) fallback_grass <- nm
+      fallback_grass <- fallback_grass[1]
+
+      fallback_dry <- setdiff(nm, c("prairie_unit", grass_guess))
+      if (!length(fallback_dry)) fallback_dry <- setdiff(nm, "prairie_unit")
+      if (!length(fallback_dry)) fallback_dry <- nm
+      fallback_dry <- fallback_dry[1]
+
+      selected_grass <- if (is.null(grass_guess)) fallback_grass else grass_guess
+      selected_dry <- if (is.null(dry_guess)) fallback_dry else dry_guess
+
+      updateSelectInput(session, "grass_col", choices = nm, selected = selected_grass)
+      updateSelectInput(session, "dry_col", choices = nm, selected = selected_dry)
+    }, ignoreNULL = FALSE)
+
+    # The cleaned dataset keeps the user-selected columns available in a tidy
+    # format that downstream modules can depend on.
+    calc_df <- reactive({
+      req(dat(), input$grass_col, input$dry_col)
+      df <- dat()
+      validate(
+        need(input$grass_col %in% names(df), "Selected grass column missing from data."),
+        need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
+      )
+
+      df$grass_pct <- numify(df[[input$grass_col]])
+      df$dry_weight <- numify(df[[input$dry_col]])
+      df
+    })
+
+    usable_df <- reactive({
+      req(calc_df())
+      dplyr::filter(calc_df(), !is.na(grass_pct), !is.na(dry_weight))
+    })
+
+    list(
+      file = reactive(input$file),
+      sheet = reactive(input$sheet),
+      unit_label = reactive(input$unit_label),
+      grass_col = reactive(input$grass_col),
+      dry_col = reactive(input$dry_col),
+      dat = dat,
+      calc_df = calc_df,
+      usable_df = usable_df,
+      sheets = reactive(sheet_choices())
+    )
+  })
+}
