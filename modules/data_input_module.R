@@ -31,6 +31,8 @@ dataInputUI <- function(id) {
 #'         selected column names to the rest of the app.
 dataInputServer <- function(id) {
   moduleServer(id, function(input, output, session) {
+    # Holds the available sheet names so both the UI and validation can reuse
+    # the same source of truth.
     sheet_choices <- reactiveVal(character(0))
 
     # When a file is uploaded we list out the available sheets. This mirrors the
@@ -68,6 +70,7 @@ dataInputServer <- function(id) {
         }
       }
 
+      # Send the freshly computed sheet names back to the UI input.
       updateSelectInput(session, "sheet", choices = sheets, selected = selected)
     })
 
@@ -104,6 +107,7 @@ dataInputServer <- function(id) {
     }
 
     guess_column <- function(nm, patterns, exclude = character()) {
+      # Quickly search column names for the first match to any pattern.
       candidates <- setdiff(nm, exclude)
       for (pat in patterns) {
         hits <- candidates[grepl(pat, candidates, ignore.case = TRUE)]
@@ -159,6 +163,7 @@ dataInputServer <- function(id) {
       selected_grass <- if (is.null(grass_guess)) fallback_grass else grass_guess
       selected_dry <- if (is.null(dry_guess)) fallback_dry else dry_guess
 
+      # Push the guesses back into the UI so users can accept or override them.
       updateSelectInput(session, "grass_col", choices = nm, selected = selected_grass)
       updateSelectInput(session, "dry_col", choices = nm, selected = selected_dry)
     }, ignoreNULL = FALSE)
@@ -173,6 +178,7 @@ dataInputServer <- function(id) {
         need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
       )
 
+      # Create consistently named numeric columns for downstream modules.
       df$grass_pct <- numify(df[[input$grass_col]])
       df$dry_weight <- numify(df[[input$dry_col]])
       df
@@ -180,6 +186,8 @@ dataInputServer <- function(id) {
 
     usable_df <- reactive({
       req(calc_df())
+      # Remove rows missing either component because they cannot contribute to
+      # the AU computation.
       dplyr::filter(calc_df(), !is.na(grass_pct), !is.na(dry_weight))
     })
 

@@ -1,3 +1,4 @@
+# Pin the CRAN mirror so that `renv` restores consistently across machines.
 options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"))
 
 # app.R
@@ -27,8 +28,10 @@ source("modules/gif_module.R")
 K_CONST <- 96.033       # multiplier
 C_CONST <- 10950        # lbs forage per AU per year (default option)
 
+# Define a custom bootstrap theme so every page element inherits the same
+# colour palette as the rest of the app.
 my_theme <- bs_theme(
-  bootswatch = "darkly",
+  bootswatch = "darkly",   # dark background so the orange highlights pop
   bg = "#161b22",
   fg = "#ffffff",
   primary = "#c9a227",
@@ -38,11 +41,12 @@ my_theme <- bs_theme(
 ui <- fluidPage(
   theme = my_theme,
 
+  # Inject a couple of helper CSS classes used throughout the layout.
   tags$head(
-    tags$style(HTML("
-      .orange { color: #c9a227; }
-      .green { color: #00bc8c; }
-    "))
+    tags$style(HTML(paste0(
+      ".orange { color: #c9a227; }\n",
+      ".green { color: #00bc8c; }\n"
+    )))
   ),
 
   titlePanel(tags$span("Animal Units (AUs) — Grazing Calculator", class = "orange")),
@@ -63,6 +67,7 @@ ui <- fluidPage(
       # The wrapper gives the floating GIF button room without covering content.
       tags$div(
         id = "main-wrap",
+        # Reserve space at the bottom so the floating button never blocks content.
         style = "position: relative; padding-bottom: 120px;",
 
         # Module 3 (main portion): AU value, download button, and formula help.
@@ -86,7 +91,8 @@ server <- function(input, output, session) {
   parameter_inputs <- parameterServer("params")
   resultsServer("results", data_inputs, parameter_inputs, K_CONST)
   tableServer("table", data_inputs)
-  gif_server("cheer")
+  gif_server("cheer")        # Fun morale booster that sits outside the calc flow.
 }
 
+# Wire the interface and server logic together.
 shinyApp(ui, server)
