@@ -7,6 +7,7 @@
 # --- User interface -------------------------------------------------------
 #' Parameter inputs UI
 #'
+#' @name parameterUI
 #' @param id Module namespace identifier.
 #' @return UI controls for the acreage, calculate button, and intake choice.
 parameterUI <- function(id) {
@@ -28,6 +29,7 @@ parameterUI <- function(id) {
 # --- Server logic ---------------------------------------------------------
 #' Parameter server logic
 #'
+#' @name parameterServer
 #' @param id Module namespace identifier.
 #' @return A list with reactivity for acreage, intake, and button presses.
 parameterServer <- function(id) {

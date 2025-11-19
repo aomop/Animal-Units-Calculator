@@ -1,0 +1,8 @@
+^.*\.lock$
+^data-raw$
+^LICENSE\.md$
+^.*\.Rproj$
+^\.Rproj\.user$
+^rsconnect$
+^app.R$
+^aucalc\.Rproj$

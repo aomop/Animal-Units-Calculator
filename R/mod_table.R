@@ -6,6 +6,7 @@
 # --- User interface -------------------------------------------------------
 #' Data table UI
 #'
+#' @name tableUI
 #' @param id Module namespace identifier.
 #' @return A DT output widget.
 tableUI <- function(id) {
@@ -16,6 +17,7 @@ tableUI <- function(id) {
 # --- Server logic ---------------------------------------------------------
 #' Data table server logic
 #'
+#' @name tableServer
 #' @param id Module namespace identifier.
 #' @param data_inputs Reactive list returned from `dataInputServer()`.
 tableServer <- function(id, data_inputs) {

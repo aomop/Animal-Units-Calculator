@@ -8,6 +8,7 @@
 # --- User interface -------------------------------------------------------
 #' Data upload and column selection UI
 #'
+#' @name dataInputUI
 #' @param id Module namespace identifier.
 #' @return A list of UI elements that render the file upload tools.
 dataInputUI <- function(id) {
@@ -26,6 +27,7 @@ dataInputUI <- function(id) {
 # --- Server logic ---------------------------------------------------------
 #' Data upload server logic
 #'
+#' @name dataInputServer
 #' @param id Module namespace identifier.
 #' @return A list of reactive helpers that expose the cleaned dataset and the
 #'         selected column names to the rest of the app.
@@ -177,13 +179,38 @@ dataInputServer <- function(id) {
         need(input$grass_col %in% names(df), "Selected grass column missing from data."),
         need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
       )
-
+      
       # Create consistently named numeric columns for downstream modules.
-      df$grass_pct <- numify(df[[input$grass_col]])
+      df$grass_pct  <- numify(df[[input$grass_col]])
       df$dry_weight <- numify(df[[input$dry_col]])
+      
+      # --- NEW: normalize grass to 0–100% if user uploaded proportions (0–1) ---
+      if (any(!is.na(df$grass_pct))) {
+        # Heuristics: either all values ≤ 1.05 OR at least 80% of non-NA values ≤ 1
+        prop_like <- (max(df$grass_pct, na.rm = TRUE) <= 1.05) ||
+          (mean(df$grass_pct <= 1, na.rm = TRUE) >= 0.80)
+        
+        if (prop_like) {
+          df$grass_pct <- df$grass_pct * 100
+          showNotification(
+            "Interpreting grass values as proportions (0–1). Converted to percents (0–100).",
+            type = "message"
+          )
+        }
+      }
+      
+      # Clamp to a sensible range and notify if anything was out of bounds
+      if (any(df$grass_pct < 0 | df$grass_pct > 100, na.rm = TRUE)) {
+        showNotification(
+          "Some grass % values were outside 0–100; clamped to bounds.",
+          type = "warning"
+        )
+        df$grass_pct <- pmin(pmax(df$grass_pct, 0), 100)
+      }
+      
       df
     })
-
+    
     usable_df <- reactive({
       req(calc_df())
       # Remove rows missing either component because they cannot contribute to

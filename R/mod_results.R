@@ -23,28 +23,28 @@ resultsMainUI <- function(id) {
   ns <- NS(id)
 
   tagList(
-    tags$hr(),
-    h3(tags$span("Calculated AUs", class = "orange")),
-    tags$h2(textOutput(ns("au_value")), class = "green"),
+    shiny::tags$hr(),
+    h3(shiny::tags$span("Calculated AUs", class = "orange")),
+    shiny::tags$h2(textOutput(ns("au_value")), class = "green"),
     downloadButton(ns("download_clean"), "Download clean CSV", class = "btn-success"),
-    tags$hr(),
-    h3(tags$span("Calculation Formula", class = "orange")),
-    tags$br(),
+    shiny::tags$hr(),
+    h3(shiny::tags$span("Calculation Formula", class = "orange")),
+    shiny::tags$br(),
     withMathJax(
-      tags$p(
+      shiny::tags$p(
         "\\({\\Large \\text{AUs} = \\frac{A \\cdot \\sum_{i=1}^{n} (w_i \\cdot g_i \\cdot K)}{2 \\cdot C \\cdot n}}\\)",
         style = "font-weight:bold; font-size: 18px;"
       ),
-      tags$p(
-        tags$strong("Where:"),
-        tags$ul(
-          tags$li("\\(A\\) = pasture acreage"),
-          tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (grams per ft\\(^2\\))"),
-          tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0–1)"),
-          tags$li(tags$span("\\(K\\) = conversion constant (", textOutput(ns("k_show"), inline = TRUE), ")")),
-          tags$li(tags$span("\\(C\\) = lbs of forage consumed per AU per year (", textOutput(ns("c_show"), inline = TRUE), ")")),
-          tags$li("\\(n\\) = total number of samples"),
-          tags$li("\\(2\\) = halving factor")
+      shiny::tags$p(
+        shiny::tags$strong("Where:"),
+        shiny::tags$ul(
+          shiny::tags$li("\\(A\\) = pasture acreage"),
+          shiny::tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (grams per ft\\(^2\\))"),
+          shiny::tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0–1)"),
+          shiny::tags$li(shiny::tags$span("\\(K\\) = conversion constant (", textOutput(ns("k_show"), inline = TRUE), ")")),
+          shiny::tags$li(shiny::tags$span("\\(C\\) = lbs of forage consumed per AU per year (", textOutput(ns("c_show"), inline = TRUE), ")")),
+          shiny::tags$li("\\(n\\) = total number of samples"),
+          shiny::tags$li("\\(2\\) = halving factor")
         )
       )
     )
@@ -246,32 +246,32 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
             # Stamp the overall AU estimate on every row for easy reference.
             au_estimate = au_val
           ) %>%
-          dplyr::mutate(plot = as.character(plot))
+          dplyr::mutate(plot = as.character(plot)) %>%
+          dplyr::filter(!is.na(grass_pct))
 
         label_input <- trimws(if (is.null(payload$unit_label)) "" else payload$unit_label)
         # Build a single line of metadata so exported CSVs carry context.
         header_parts <- c(
           if (nzchar(label_input)) paste0("Unit: ", label_input) else NULL,
-          paste0("Acreage: ", format(payload$acreage, big.mark = ",")),
+          paste0("Acreage: ", payload$acreages),
           paste0("Usable samples: ", payload$usable),
-          paste0("Intake (lbs/AU): ", format(c_reactive(), big.mark = ",")),
-          paste0("Conversion constant (K): ", format(k_const, big.mark = ","))
+          paste0("Intake (lbs/AU): ", c_reactive()),
+          paste0("Conversion constant (K): ", k_const)
         )
 
-        # Prepend the header row before the actual cleaned observations.
-        header_row <- tibble::tibble(
-          plot = paste(header_parts, collapse = " | "),
-          grass_pct = NA_real_,
-          dry_weight = NA_real_,
-          usable_for_au = NA,
-          au_component = NA_real_,
-          au_estimate = NA_real_
-        )
-
-        output_tbl <- dplyr::bind_rows(header_row, clean_df)
-
-        # Export using base CSV writer so users can open it in any spreadsheet tool.
-        write.csv(output_tbl, file, row.names = FALSE, na = "")
+        con <- file(file, open = "wt")
+        writeLines(paste(header_parts, collapse = "|"), con)
+        
+        write.table(clean_df,
+                    con,
+                    sep = ",",
+                    row.names = FALSE,
+                    col.names = TRUE,  # still write the column labels
+                    na = "",
+                    qmethod = "double",
+                    append = TRUE)
+        
+        close(con)
       }
     )
 
