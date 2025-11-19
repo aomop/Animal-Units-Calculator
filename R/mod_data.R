@@ -12,15 +12,15 @@
 #' @param id Module namespace identifier.
 #' @return A list of UI elements that render the file upload tools.
 dataInputUI <- function(id) {
-  ns <- NS(id)
+  ns <- shiny::NS(id)
 
-  tagList(
-    fileInput(ns("file"), "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
-    helpText("Select the sheet and columns that contain grass percent and dry weight data."),
-    selectInput(ns("sheet"), "Choose sheet:", choices = character(0)),
-    textInput(ns("unit_label"), "Unit name (optional):", value = ""),
-    selectInput(ns("grass_col"), "Grass % column:", choices = NULL),
-    selectInput(ns("dry_col"), "Dry weight column:", choices = NULL)
+  shiny::tagList(
+    shiny::fileInput(ns("file"), "Upload Excel (.xlsx/.xls)", accept = c(".xlsx", ".xls")),
+    shiny::helpText("Select the sheet and columns that contain grass percent and dry weight data."),
+    shiny::selectInput(ns("sheet"), "Choose sheet:", choices = character(0)),
+    shiny::textInput(ns("unit_label"), "Unit name (optional):", value = ""),
+    shiny::selectInput(ns("grass_col"), "Grass % column:", choices = NULL),
+    shiny::selectInput(ns("dry_col"), "Dry weight column:", choices = NULL)
   )
 }
 
@@ -32,14 +32,14 @@ dataInputUI <- function(id) {
 #' @return A list of reactive helpers that expose the cleaned dataset and the
 #'         selected column names to the rest of the app.
 dataInputServer <- function(id) {
-  moduleServer(id, function(input, output, session) {
+  shiny::moduleServer(id, function(input, output, session) {
     # Holds the available sheet names so both the UI and validation can reuse
     # the same source of truth.
-    sheet_choices <- reactiveVal(character(0))
+    sheet_choices <- shiny::reactiveVal(character(0))
 
     # When a file is uploaded we list out the available sheets. This mirrors the
     # behaviour from the single-file app but keeps the scope inside the module.
-    observeEvent(input$file, {
+    shiny::observeEvent(input$file, {
       file <- input$file
       if (is.null(file)) {
         sheet_choices(character(0))
@@ -49,7 +49,7 @@ dataInputServer <- function(id) {
       sheets <- tryCatch(
         readxl::excel_sheets(file$datapath),
         error = function(e) {
-          showNotification(
+          shiny::showNotification(
             paste("Unable to read sheets from the uploaded file:", e$message),
             type = "error"
           )
@@ -61,7 +61,7 @@ dataInputServer <- function(id) {
     })
 
     # Keep the sheet select box in sync with whatever is available.
-    observe({
+    shiny::observe({
       sheets <- sheet_choices()
       selected <- NULL
       if (length(sheets) > 0) {
@@ -73,30 +73,30 @@ dataInputServer <- function(id) {
       }
 
       # Send the freshly computed sheet names back to the UI input.
-      updateSelectInput(session, "sheet", choices = sheets, selected = selected)
+      shiny::updateSelectInput(session, "sheet", choices = sheets, selected = selected)
     })
 
     # Read in the selected sheet, keeping the names tidy so users can work with
     # consistent column names.
-    dat <- reactive({
-      req(input$file)
+    dat <- shiny::reactive({
+      shiny::req(input$file)
       sheets <- sheet_choices()
 
-      validate(
-        need(length(sheets) > 0, "No sheets available in the uploaded file."),
-        need(!is.null(input$sheet) && nzchar(input$sheet), "Select a sheet to load."),
-        need(input$sheet %in% sheets, "Selected sheet not found in the uploaded file. Please choose another sheet.")
+      shiny::validate(
+        shiny::need(length(sheets) > 0, "No sheets available in the uploaded file."),
+        shiny::need(!is.null(input$sheet) && nzchar(input$sheet), "Select a sheet to load."),
+        shiny::need(input$sheet %in% sheets, "Selected sheet not found in the uploaded file. Please choose another sheet.")
       )
 
       raw <- tryCatch(
         readxl::read_excel(input$file$datapath, sheet = input$sheet),
         error = function(e) {
-          validate(need(FALSE, paste0("Unable to read sheet '", input$sheet, "': ", e$message)))
+          shiny::validate(shiny::need(FALSE, paste0("Unable to read sheet '", input$sheet, "': ", e$message)))
         }
       )
 
       raw <- janitor::clean_names(raw)
-      validate(need(nrow(raw) > 0, "Uploaded sheet has no rows."))
+      shiny::validate(shiny::need(nrow(raw) > 0, "Uploaded sheet has no rows."))
       raw
     })
 
@@ -120,8 +120,8 @@ dataInputServer <- function(id) {
 
     # Once data is available we suggest sensible defaults for the grass and dry
     # weight columns so that beginners do not have to guess.
-    observeEvent(dat(), {
-      req(dat())
+    shiny::observeEvent(dat(), {
+      shiny::req(dat())
       nm <- names(dat())
       if (!length(nm)) return(NULL)
 
@@ -166,18 +166,18 @@ dataInputServer <- function(id) {
       selected_dry <- if (is.null(dry_guess)) fallback_dry else dry_guess
 
       # Push the guesses back into the UI so users can accept or override them.
-      updateSelectInput(session, "grass_col", choices = nm, selected = selected_grass)
-      updateSelectInput(session, "dry_col", choices = nm, selected = selected_dry)
+      shiny::updateSelectInput(session, "grass_col", choices = nm, selected = selected_grass)
+      shiny::updateSelectInput(session, "dry_col", choices = nm, selected = selected_dry)
     }, ignoreNULL = FALSE)
 
     # The cleaned dataset keeps the user-selected columns available in a tidy
     # format that downstream modules can depend on.
-    calc_df <- reactive({
-      req(dat(), input$grass_col, input$dry_col)
+    calc_df <- shiny::reactive({
+      shiny::req(dat(), input$grass_col, input$dry_col)
       df <- dat()
-      validate(
-        need(input$grass_col %in% names(df), "Selected grass column missing from data."),
-        need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
+      shiny::validate(
+        shiny::need(input$grass_col %in% names(df), "Selected grass column missing from data."),
+        shiny::need(input$dry_col %in% names(df), "Selected dry weight column missing from data.")
       )
       
       # Create consistently named numeric columns for downstream modules.
@@ -192,7 +192,7 @@ dataInputServer <- function(id) {
         
         if (prop_like) {
           df$grass_pct <- df$grass_pct * 100
-          showNotification(
+          shiny::showNotification(
             "Interpreting grass values as proportions (0–1). Converted to percents (0–100).",
             type = "message"
           )
@@ -201,7 +201,7 @@ dataInputServer <- function(id) {
       
       # Clamp to a sensible range and notify if anything was out of bounds
       if (any(df$grass_pct < 0 | df$grass_pct > 100, na.rm = TRUE)) {
-        showNotification(
+        shiny::showNotification(
           "Some grass % values were outside 0–100; clamped to bounds.",
           type = "warning"
         )
@@ -211,23 +211,23 @@ dataInputServer <- function(id) {
       df
     })
     
-    usable_df <- reactive({
-      req(calc_df())
+    usable_df <- shiny::reactive({
+      shiny::req(calc_df())
       # Remove rows missing either component because they cannot contribute to
       # the AU computation.
-      dplyr::filter(calc_df(), !is.na(grass_pct), !is.na(dry_weight))
+      dplyr::filter(calc_df(), !is.na(rlang::.data$grass_pct), !is.na(rlang::.data$dry_weight))
     })
 
     list(
-      file = reactive(input$file),
-      sheet = reactive(input$sheet),
-      unit_label = reactive(input$unit_label),
-      grass_col = reactive(input$grass_col),
-      dry_col = reactive(input$dry_col),
+      file = shiny::reactive(input$file),
+      sheet = shiny::reactive(input$sheet),
+      unit_label = shiny::reactive(input$unit_label),
+      grass_col = shiny::reactive(input$grass_col),
+      dry_col = shiny::reactive(input$dry_col),
       dat = dat,
       calc_df = calc_df,
       usable_df = usable_df,
-      sheets = reactive(sheet_choices())
+      sheets = shiny::reactive(sheet_choices())
     )
   })
 }

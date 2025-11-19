@@ -13,5 +13,5 @@ app_server <- function(input, output, session) {
   parameter_inputs <- parameterServer("params")
   resultsServer("results", data_inputs, parameter_inputs, K_CONST)
   tableServer("table", data_inputs)
-  gif_server("cheer")
+  cheerfulgif::gif_server("cheer")
 }

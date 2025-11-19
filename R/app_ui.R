@@ -24,10 +24,10 @@ app_ui <- function() {
       # Module 1: gather the spreadsheet and column selections from the user.
       dataInputUI("data"),
       shiny::tags$hr(),
-      h3(shiny::tags$span("Parameters", class = "orange")),
+      shiny::h3(shiny::tags$span("Parameters", class = "orange")),
       # Module 2: acreage, intake assumption, and calculate button.
       parameterUI("params"),
-      shiny::helpText(HTML(paste0("Calculations assume the plot size is 1ft", shiny::tags$sup("2"), " and weight measurements are taken in grams."))),
+      shiny::helpText(shiny::HTML(paste0("Calculations assume the plot size is 1ft", shiny::tags$sup("2"), " and weight measurements are taken in grams."))),
       shiny::tags$hr(),
       # Module 3 (sidebar portion): running summary of the current calculation.
       resultsSidebarUI("results")
