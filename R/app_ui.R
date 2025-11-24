@@ -18,7 +18,7 @@ app_ui <- function() {
     )))
   )
   
-  shiny::titlePanel(shiny::tags$span("Animal Units (AUs) — Grazing Calculator", class = "orange"))
+  shiny::titlePanel(shiny::tags$span("Animal Units (AUs) - Grazing Calculator", class = "orange"))
   shiny::sidebarLayout(
     shiny::sidebarPanel(
       # Module 1: gather the spreadsheet and column selections from the user.

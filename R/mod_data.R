@@ -184,7 +184,7 @@ dataInputServer <- function(id) {
       df$grass_pct  <- numify(df[[input$grass_col]])
       df$dry_weight <- numify(df[[input$dry_col]])
       
-      # --- NEW: normalize grass to 0–100% if user uploaded proportions (0–1) ---
+      # --- NEW: normalize grass to 0-100% if user uploaded proportions (0-1) ---
       if (any(!is.na(df$grass_pct))) {
         # Heuristics: either all values ≤ 1.05 OR at least 80% of non-NA values ≤ 1
         prop_like <- (max(df$grass_pct, na.rm = TRUE) <= 1.05) ||
@@ -193,7 +193,7 @@ dataInputServer <- function(id) {
         if (prop_like) {
           df$grass_pct <- df$grass_pct * 100
           shiny::showNotification(
-            "Interpreting grass values as proportions (0–1). Converted to percents (0–100).",
+            "Interpreting grass values as proportions (0-1). Converted to percents (0-100).",
             type = "message"
           )
         }
@@ -202,7 +202,7 @@ dataInputServer <- function(id) {
       # Clamp to a sensible range and notify if anything was out of bounds
       if (any(df$grass_pct < 0 | df$grass_pct > 100, na.rm = TRUE)) {
         shiny::showNotification(
-          "Some grass % values were outside 0–100; clamped to bounds.",
+          "Some grass % values were outside 0-100; clamped to bounds.",
           type = "warning"
         )
         df$grass_pct <- pmin(pmax(df$grass_pct, 0), 100)

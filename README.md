@@ -28,9 +28,9 @@ shiny::runApp('app.R')
 In RStudio, open `app.R` and click **Run App**.
 
 ## Project structure
-- `app.R` – main Shiny application
-- `modules/gif_module.R` – motivational GIF module
-- `renv/` and `renv.lock` – package management via renv
+- `app.R` - main Shiny application
+- `modules/gif_module.R` - motivational GIF module
+- `renv/` and `renv.lock` - package management via renv
 
 ## Usage guide
 1. Upload an Excel file.

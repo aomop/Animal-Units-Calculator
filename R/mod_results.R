@@ -40,7 +40,7 @@ resultsMainUI <- function(id) {
         shiny::tags$ul(
           shiny::tags$li("\\(A\\) = pasture acreage"),
           shiny::tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (grams per ft\\(^2\\))"),
-          shiny::tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0–1)"),
+          shiny::tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0-1)"),
           shiny::tags$li(shiny::tags$span("\\(K\\) = conversion constant (", shiny::textOutput(ns("k_show"), inline = TRUE), ")")),
           shiny::tags$li(shiny::tags$span("\\(C\\) = lbs of forage consumed per AU per year (", shiny::textOutput(ns("c_show"), inline = TRUE), ")")),
           shiny::tags$li("\\(n\\) = total number of samples"),
@@ -111,9 +111,9 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
         # Flag the rows that contain both inputs needed for the calculation.
         usable_for_au = !is.na(rlang::.data$grass_pct) & !is.na(rlang::.data$dry_weight),
         # Convert the percent into a proportion so the formula works as expected.
-        grass_proportion = dplyr::if_else(usable_for_au, rlang::.data$grass_pct / 100, NA_real_),
+        grass_proportion = dplyr::if_else(rlang::.data$usable_for_au, rlang::.data$grass_pct / 100, NA_real_),
         # Pre-compute each row's contribution to the numerator of the AU formula.
-        au_component = dplyr::if_else(usable_for_au, rlang::.data$dry_weight * grass_proportion * k_const, NA_real_)
+        au_component = dplyr::if_else(rlang::.data$usable_for_au, rlang::.data$dry_weight * rlang::.data$grass_proportion * k_const, NA_real_)
       )
 
       calc_state$payload <- list(
@@ -261,8 +261,8 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
 
         con <- file(file, open = "wt")
         writeLines(paste(header_parts, collapse = "|"), con)
-        
-        write.table(clean_df,
+
+        utils::write.table(clean_df,
                     con,
                     sep = ",",
                     row.names = FALSE,
@@ -270,7 +270,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
                     na = "",
                     qmethod = "double",
                     append = TRUE)
-        
+
         close(con)
       }
     )
@@ -278,8 +278,8 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
     # Provide a list of helper reactives for other modules (like the table) to
     # reuse if needed in the future.
     list(
-      payload = reactive(calc_state$payload),     # full calculation details
-      signature = reactive(calc_state$signature), # inputs that produced payload
+      payload = shiny::reactive(calc_state$payload),     # full calculation details
+      signature = shiny::reactive(calc_state$signature), # inputs that produced payload
       c_value = c_reactive                         # expose current intake choice
     )
   })
