@@ -109,11 +109,11 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
       df_all <- dplyr::mutate(
         df_all,
         # Flag the rows that contain both inputs needed for the calculation.
-        usable_for_au = !is.na(rlang::.data$grass_pct) & !is.na(rlang::.data$dry_weight),
+        usable_for_au = !is.na(.data$grass_pct) & !is.na(.data$dry_weight),
         # Convert the percent into a proportion so the formula works as expected.
-        grass_proportion = dplyr::if_else(rlang::.data$usable_for_au, rlang::.data$grass_pct / 100, NA_real_),
+        grass_proportion = dplyr::if_else(.data$usable_for_au, .data$grass_pct / 100, NA_real_),
         # Pre-compute each row's contribution to the numerator of the AU formula.
-        au_component = dplyr::if_else(rlang::.data$usable_for_au, rlang::.data$dry_weight * rlang::.data$grass_proportion * k_const, NA_real_)
+        au_component = dplyr::if_else(.data$usable_for_au, .data$dry_weight * .data$grass_proportion * k_const, NA_real_)
       )
 
       calc_state$payload <- list(
@@ -238,16 +238,16 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
 
         clean_df <- payload$clean_df %>%
           dplyr::transmute(
-            plot = rlang::.data$plot,
-            grass_pct = rlang::.data$grass_pct,
-            dry_weight = rlang::.data$dry_weight,
-            usable_for_au = rlang::.data$usable_for_au,
-            au_component = rlang::.data$au_component,
+            plot = .data$plot,
+            grass_pct = .data$grass_pct,
+            dry_weight = .data$dry_weight,
+            usable_for_au = .data$usable_for_au,
+            au_component = .data$au_component,
             # Stamp the overall AU estimate on every row for easy reference.
             au_estimate = au_val
           ) %>%
-          dplyr::mutate(plot = as.character(rlang::.data$plot)) %>%
-          dplyr::filter(!is.na(rlang::.data$grass_pct))
+          dplyr::mutate(plot = as.character(.data$plot)) %>%
+          dplyr::filter(!is.na(.data$grass_pct))
 
         label_input <- trimws(if (is.null(payload$unit_label)) "" else payload$unit_label)
         # Build a single line of metadata so exported CSVs carry context.

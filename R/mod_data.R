@@ -215,7 +215,7 @@ dataInputServer <- function(id) {
       shiny::req(calc_df())
       # Remove rows missing either component because they cannot contribute to
       # the AU computation.
-      dplyr::filter(calc_df(), !is.na(rlang::.data$grass_pct), !is.na(rlang::.data$dry_weight))
+      dplyr::filter(calc_df(), !is.na(.data$grass_pct), !is.na(.data$dry_weight))
     })
 
     list(

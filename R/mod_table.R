@@ -56,8 +56,8 @@ tableServer <- function(id, data_inputs) {
       display_df <- usable_df %>%
         dplyr::mutate(
           # Rename columns into friendly labels without changing the raw data.
-          `Grass %` = rlang::.data$grass_pct,
-          `Dry weight (g/ft^2)` = rlang::.data$dry_weight
+          `Grass %` = .data$grass_pct,
+          `Dry weight (g/ft^2)` = .data$dry_weight
         )
 
       preferred <- intersect("plot", names(display_df))
