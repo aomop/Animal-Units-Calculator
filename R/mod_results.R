@@ -32,7 +32,7 @@ resultsMainUI <- function(id) {
     shiny::tags$br(),
     shiny::withMathJax(
       shiny::tags$p(
-        "\\({\\Large \\text{AUs} = \\frac{A \\cdot \\sum_{i=1}^{n} (w_i \\cdot g_i \\cdot K)}{2 \\cdot C \\cdot n}}\\)",
+        "\\({\\Large \\text{AUs} = \\frac{A \\cdot L \\cdot \\sum_{i=1}^{n} (w_i \\cdot g_i \\cdot K)}{2 \\cdot C \\cdot n}}\\)",
         style = "font-weight:bold; font-size: 18px;"
       ),
       shiny::tags$p(
@@ -42,6 +42,7 @@ resultsMainUI <- function(id) {
           shiny::tags$li("\\(w_i\\) = dry weight of sample \\(i\\) (grams per ft\\(^2\\))"),
           shiny::tags$li("\\(g_i\\) = proportion of grass in sample \\(i\\) (0-1)"),
           shiny::tags$li(shiny::tags$span("\\(K\\) = conversion constant (", shiny::textOutput(ns("k_show"), inline = TRUE), ")")),
+          shiny::tags$li(shiny::tags$span("\\(L\\) = limit factor (", shiny::textOutput(ns("limit_show"), inline = TRUE), " of available forage)")),
           shiny::tags$li(shiny::tags$span("\\(C\\) = lbs of forage consumed per AU per year (", shiny::textOutput(ns("c_show"), inline = TRUE), ")")),
           shiny::tags$li("\\(n\\) = total number of samples"),
           shiny::tags$li("\\(2\\) = halving factor")
@@ -81,6 +82,10 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
     output$c_show <- shiny::renderText({
       # Same story for the intake figure that comes from the parameter module.
       format(c_reactive(), big.mark = ",")
+    })
+
+    output$limit_show <- shiny::renderText({
+      paste0(limit_factor(), "%")
     })
 
     # We track a signature of the inputs. Whenever something changes the user is
@@ -166,7 +171,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
       }
 
       den <- 2 * c_reactive() * payload$usable  # denominator of the AU equation
-      val <- payload$acreage * payload$sum_component / den
+      val <- payload$acreage * payload$sum_component * (limit_factor() / 100) / den
       if (is.na(val)) {
         "No usable value could be calculated."
       } else {
@@ -238,7 +243,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
         }
 
         den <- 2 * c_reactive() * payload$usable
-        au_val <- payload$acreage * payload$sum_component / den
+        au_val <- payload$acreage * payload$sum_component * (limit_factor() / 100) / den
 
         clean_df <- payload$clean_df %>%
           dplyr::transmute(
@@ -259,6 +264,7 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
           if (nzchar(label_input)) paste0("Unit: ", label_input) else NULL,
           paste0("Acreage: ", payload$acreage),
           paste0("Usable samples: ", payload$usable),
+          paste0("Limit factor: ", limit_factor(), "%"),
           paste0("Intake (lbs/AU): ", c_reactive()),
           paste0("Conversion constant (K): ", k_const)
         )
