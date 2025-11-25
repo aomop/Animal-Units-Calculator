@@ -15,6 +15,12 @@ parameterUI <- function(id) {
 
   shiny::tagList(
     shiny::numericInput(ns("acreage"), "Pasture acreage (A):", value = NA, min = 0, step = 0.5),
+    shiny::selectInput(
+      inputId = "limit_factor",
+      label   = "Limit Factor (% of forage available to grazing animals):",
+      choices = paste0(seq(10, 100, by = 10), "%"),
+      selected = "40%"
+    ),
     shiny::actionButton(ns("calculate"), "Calculate", class = "btn-primary"),
     shiny::radioButtons(
       ns("intake"),
@@ -45,9 +51,14 @@ parameterServer <- function(id) {
       as.numeric(input$intake)
     })
 
+    limit_factor <- shiny::reactive({
+      as.numeric(input$limit_factor)
+    })
+
     list(
       acreage = acreage,
       intake = intake,
+      limit_factor = limit_factor,
       calculate = shiny::reactive(input$calculate)
     )
   })

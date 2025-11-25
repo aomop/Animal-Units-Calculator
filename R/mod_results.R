@@ -69,6 +69,10 @@ resultsServer <- function(id, data_inputs, parameter_inputs, k_const) {
       parameter_inputs$intake()
     })
 
+    limit_factor <- shiny::reactive({
+      parameter_inputs$limit_factor()
+    })
+
     output$k_show <- shiny::renderText({
       # Present the conversion constant with thousands separators for readability.
       format(round(k_const, 3), big.mark = ",")
